@@ -1,5 +1,8 @@
+'''
+    Author: Uriel Ramirez
+'''
 import boto3
-import datetime
+from datetime import datetime, timedelta
 import time
 import botocore
 import ssl
@@ -97,6 +100,13 @@ def getRoleFromProfile (item):
 		return values[5].split("/")[1]
 	else:
 		return strRole
+
+def isValueInArray(value, items, key):
+	for item in items:
+		if key in item:
+			if item[key]==value:
+				return True
+	return False
 		
 session = Session(aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_DEFAULT_REGION)
 
@@ -150,6 +160,8 @@ if responseSubnets:
 ###################################################################### AMAZON EC2
 ######################################################################
 
+client_cw = session.client('cloudwatch')
+
 responseInstances = describeServiceItems(client, "describe_instances", "Reservations")
 if responseInstances:
 	dataInstances = []
@@ -171,6 +183,34 @@ if responseInstances:
 			item_service['PublicIpAddress'] = getExistsValueKey(instance, 'PublicIpAddress')
 			item_service['SubnetId'] = str(instance['SubnetId'])
 			item_service['VpcId'] = str(instance['VpcId'])
+			start_time = datetime.today() - timedelta(days=14)
+			end_time = datetime.today()
+			responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/EC2', MetricName='CPUUtilization', Dimensions=[ { 'Name' : 'InstanceId', 'Value': '"+instance['InstanceId']+"'  } ], Period=86400, Statistics=['Average'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Percent'")
+			if responseDatapoints:
+				total = 0
+				for data_point in responseDatapoints:
+					#item_service['Avg-'+data_point['Timestamp'].strftime("%y-%m-%d")] = round(data_point['Average'],2)
+					total += data_point['Average']
+				item_service['CPU-Total-Avg-14days'] = round(total/len(responseDatapoints),2)
+			responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/EC2', MetricName='CPUUtilization', Dimensions=[ { 'Name' : 'InstanceId', 'Value': '"+instance['InstanceId']+"'  } ], Period=86400, Statistics=['Maximum'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Percent'")
+			if responseDatapoints:
+				total = 0
+				for data_point in responseDatapoints:
+					#item_service['Max-'+data_point['Timestamp'].strftime("%y-%m-%d")] = round(data_point['Maximum'],2)
+					total += data_point['Maximum']
+				item_service['CPU-Total-Avg-Max-14days'] = round(total/len(responseDatapoints),2)
+			responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/EC2', MetricName='NetworkIn', Dimensions=[ { 'Name' : 'InstanceId', 'Value': '"+instance['InstanceId']+"'  } ], Period=86400, Statistics=['Sum'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Bytes'")
+			if responseDatapoints:
+				total = 0
+				for data_point in responseDatapoints:
+					total += data_point['Sum']
+				item_service['NetIn-Total-Gigabytes-14days'] = round(total/1000000000,2)
+			responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/EC2', MetricName='NetworkOut', Dimensions=[ { 'Name' : 'InstanceId', 'Value': '"+instance['InstanceId']+"'  } ], Period=86400, Statistics=['Sum'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Bytes'")
+			if responseDatapoints:
+				total = 0
+				for data_point in responseDatapoints:
+					total += data_point['Sum']
+				item_service['NetOut-Total-Gigabytes-14days'] = round(total/1000000000,2)
 			dataInstances.append(item_service)
 	df = pd.DataFrame(dataInstances)
 	df.to_csv(path_folder+'/ec2_instances.csv', index=False)
@@ -190,7 +230,7 @@ if responseVolumes:
 		responseVolumeSnapshots = describeServiceItems(client, "describe_snapshots", "Snapshots", " Filters = [{ 'Name' : 'volume-id', 'Values' : [ '"+item['VolumeId']+"' ] }]")
 		if responseVolumeSnapshots:
 			item_service['Snapshots'] = len(responseVolumeSnapshots)
-			current_time = time.mktime(datetime.datetime.utcnow().timetuple())
+			current_time = time.mktime(datetime.utcnow().timetuple())
 			max_time_snapshot = 0
 			max_date_string = ""
 			difference_time = 0
@@ -222,6 +262,7 @@ if responseSnapshots:
 		item_service['VolumeSize'] = item['VolumeSize']
 		item_service['Description'] = item['Description']
 		item_service['Encrypted'] = item['Encrypted']
+		item_service['VolumeExists'] = isValueInArray(item['VolumeId'],dataVolumes,'VolumeId')
 		dataSnapshots.append(item_service)
 	df = pd.DataFrame(dataSnapshots)
 	df.to_csv(path_folder+'/ec2_snapshots.csv', index=False)
@@ -292,10 +333,36 @@ if responseDBInstances:
 		else:
 			item_service['Endpoint'] = ''
 			item_service['Port'] = ''
+		
+		responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/RDS', MetricName='CPUUtilization', Dimensions=[ { 'Name' : 'DBInstanceIdentifier', 'Value': '"+item["DBInstanceIdentifier"]+"'  } ], Period=86400, Statistics=['Average'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Percent'")
+		if responseDatapoints:
+			total = 0
+			for data_point in responseDatapoints:
+				total += data_point['Average']
+			item_service['CPU-Total-Avg-14days'] = round(total/len(responseDatapoints),2)
+		responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/RDS', MetricName='CPUUtilization', Dimensions=[ { 'Name' : 'DBInstanceIdentifier', 'Value': '"+item["DBInstanceIdentifier"]+"'  } ], Period=86400, Statistics=['Maximum'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Percent'")
+		if responseDatapoints:
+			total = 0
+			for data_point in responseDatapoints:
+				total += data_point['Maximum']
+			item_service['CPU-Total-Avg-Max-14days'] = round(total/len(responseDatapoints),2)
+			
+		responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/RDS', MetricName='FreeableMemory', Dimensions=[ { 'Name' : 'DBInstanceIdentifier', 'Value': '"+item["DBInstanceIdentifier"]+"'  } ], Period=86400, Statistics=['Average'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Bytes'")
+		if responseDatapoints:
+			total = 0
+			for data_point in responseDatapoints:
+				total += data_point['Average']
+			item_service['FreeableMemory-Total-Avg-14days'] = round((total/len(responseDatapoints))/1000000000,2)
+		responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/RDS', MetricName='FreeableMemory', Dimensions=[ { 'Name' : 'DBInstanceIdentifier', 'Value': '"+item["DBInstanceIdentifier"]+"'  } ], Period=86400, Statistics=['Maximum'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Bytes'")
+		if responseDatapoints:
+			total = 0
+			for data_point in responseDatapoints:
+				total += data_point['Maximum']
+			item_service['FreeableMemory-Total-Avg-Max-14days'] = round((total/len(responseDatapoints))/1000000000,2)
+			
 		dataDBInstances.append(item_service)
 	df = pd.DataFrame(dataDBInstances)
 	df.to_csv(path_folder+'/rds_instances.csv', index=False)
-
 
 responseReservedDBInstances = describeServiceItems(client, "describe_reserved_db_instances", "ReservedDBInstances")
 if responseReservedDBInstances:
