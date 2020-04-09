@@ -11,7 +11,7 @@ AWS Summary for the following services:
 - RDS Instances
 - Reserved RDS Instances
 
-[Activate **Compute Optimizer** in order to have instace recommendations](https://docs.aws.amazon.com/compute-optimizer/latest/ug/getting-started.html#account-opt-in).
+[Activate **Compute Optimizer** in order to have instace recommendations, data will be available few hours later](https://docs.aws.amazon.com/compute-optimizer/latest/ug/getting-started.html#account-opt-in).
 
 Clone this github project and inside the folder execute the following commands.
 
