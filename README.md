@@ -1,5 +1,18 @@
 ## AWS Summary
 
+AWS Summary for the following services:
+
+- VPC
+- Subnets
+- EC2 Instances + Compute Optimizer
+- EBS
+- Snapshots
+- Reserved EC2 Instances
+- RDS Instances
+- Reserved RDS Instances
+
+[Activate **Compute Optimizer** in order to have instace recommendations](https://docs.aws.amazon.com/compute-optimizer/latest/ug/getting-started.html#account-opt-in).
+
 Clone this github project and inside the folder execute the following commands.
 
 1\. Install requirements.

@@ -1,5 +1,6 @@
 '''
     Author: Uriel Ramirez
+    Email: aurbac@gmail.com
 '''
 import boto3
 from datetime import datetime, timedelta
@@ -107,6 +108,12 @@ def isValueInArray(value, items, key):
 			if item[key]==value:
 				return True
 	return False
+	
+def getItemFromArray(key, value, items):
+	for item in items:
+		if key in item and item[key]==value:
+			return item
+	return False
 		
 session = Session(aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_DEFAULT_REGION)
 
@@ -128,6 +135,8 @@ if responseVpcs:
 	dataVpcs = []
 	for item in responseVpcs:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['Name'] = getValueTag( getExistsValueKey(item, 'Tags'), "Name")
 		item_service['VpcId'] = item['VpcId']
 		item_service['State'] = item['State']
@@ -144,6 +153,8 @@ if responseSubnets:
 	dataSubnets = []
 	for item in responseSubnets:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['Name'] = getValueTag( getExistsValueKey(item, 'Tags'), "Name")
 		item_service['SubnetId'] = item['SubnetId']
 		item_service['State'] = item['State']
@@ -161,6 +172,9 @@ if responseSubnets:
 ######################################################################
 
 client_cw = session.client('cloudwatch')
+client_co = session.client('compute-optimizer')
+
+responseInstanceRecommendations = describeServiceItems(client_co, "get_ec2_instance_recommendations", "instanceRecommendations", " filters=[ { 'name': 'Finding', 'values': ['Overprovisioned','Overprovisioned','Optimized']}] ")
 
 responseInstances = describeServiceItems(client, "describe_instances", "Reservations")
 if responseInstances:
@@ -168,21 +182,26 @@ if responseInstances:
 	for reservation in responseInstances:
 		for instance in reservation['Instances']:
 			item_service = {}
-			item_service['State'] = instance['State']['Name']
+			item_service['AccountId'] = account_id
+			item_service['Region'] = AWS_DEFAULT_REGION
 			item_service['InstanceId'] = instance['InstanceId']
+			item_service['State'] = instance['State']['Name']
 			item_service['Name'] = getValueTag( getExistsValueKey(instance, 'Tags'), "Name")
 			item_service['InstanceType'] = instance['InstanceType']
-			item_service['IamInstanceProfile'] = getRoleFromProfile(getExistsValueKey(instance, 'IamInstanceProfile'))
+			item_service['LaunchTime'] = instance['LaunchTime']
+			item_service['VirtualizationType'] = instance['VirtualizationType']
+			item_service['EbsOptimized'] = isTrueOrFalse(instance['EbsOptimized'])
+			item_service['EnaSupport'] = isTrueOrFalse(instance['EnaSupport'])
 			item_service['KeyName'] = getExistsValueKey(instance, 'KeyName')
 			if getExistsValueKey(instance,'Platform').lower()=="windows":
 				item_service['Platform'] = "Windows"
 			else:
-				item_service['DefaultForAz'] = "Linux"
-			item_service['EbsOptimized'] = isTrueOrFalse(instance['EbsOptimized'])
+				item_service['Platform'] = "Linux"
 			item_service['PrivateIpAddress'] = str(instance['PrivateIpAddress'])
 			item_service['PublicIpAddress'] = getExistsValueKey(instance, 'PublicIpAddress')
 			item_service['SubnetId'] = str(instance['SubnetId'])
 			item_service['VpcId'] = str(instance['VpcId'])
+			item_service['IamInstanceProfile'] = getRoleFromProfile(getExistsValueKey(instance, 'IamInstanceProfile'))
 			start_time = datetime.today() - timedelta(days=14)
 			end_time = datetime.today()
 			responseDatapoints = describeServiceItems(client_cw, "get_metric_statistics", "Datapoints", " Namespace='AWS/EC2', MetricName='CPUUtilization', Dimensions=[ { 'Name' : 'InstanceId', 'Value': '"+instance['InstanceId']+"'  } ], Period=86400, Statistics=['Average'], StartTime=datetime.today() - timedelta(days=14), EndTime=datetime.today(), Unit='Percent'")
@@ -211,6 +230,12 @@ if responseInstances:
 				for data_point in responseDatapoints:
 					total += data_point['Sum']
 				item_service['NetOut-Total-Gigabytes-14days'] = round(total/1000000000,2)
+			if responseInstanceRecommendations:
+				instance_recommendation = getItemFromArray('instanceArn','arn:aws:ec2:'+AWS_DEFAULT_REGION+':'+account_id+':instance/'+instance['InstanceId'],responseInstanceRecommendations)
+				if instance_recommendation:
+					item_service['Finding'] = instance_recommendation['finding']
+					for option in instance_recommendation['recommendationOptions']:
+						item_service['RecommendedInstanceType'+str(option['rank'])] = option['instanceType']
 			dataInstances.append(item_service)
 	df = pd.DataFrame(dataInstances)
 	df.to_csv(path_folder+'/ec2_instances.csv', index=False)
@@ -220,13 +245,18 @@ if responseVolumes:
 	dataVolumes = []
 	for item in responseVolumes:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['VolumeId'] = item['VolumeId']
 		item_service['VolumeType'] = item['VolumeType']
 		item_service['Size'] = str(item['Size'])
-		item_service['Device'] = getExistsValueKey(item['Attachments'][0], 'Device')
+		item_service['State'] = str(item['State'])
+		if 'Attachments' in item and len(item['Attachments'])>0:
+			item_service['InstanceIdAttachment'] = getExistsValueKey(item['Attachments'][0], 'InstanceId')
+			item_service['StateAttachment'] = isTrueOrFalse(getExistsValueKey(item['Attachments'][0], 'State'))
+			item_service['DeviceAttachment'] = getExistsValueKey(item['Attachments'][0], 'Device')
+			item_service['DeleteOnTerminationAttachment'] = isTrueOrFalse(getExistsValueKey(item['Attachments'][0], 'DeleteOnTermination'))
 		item_service['Encrypted'] = isTrueOrFalse(item['Encrypted'])
-		item_service['DeleteOnTermination'] = isTrueOrFalse(getExistsValueKey(item['Attachments'][0], 'DeleteOnTermination'))
-		item_service['State'] = isTrueOrFalse(getExistsValueKey(item['Attachments'][0], 'State'))
 		responseVolumeSnapshots = describeServiceItems(client, "describe_snapshots", "Snapshots", " Filters = [{ 'Name' : 'volume-id', 'Values' : [ '"+item['VolumeId']+"' ] }]")
 		if responseVolumeSnapshots:
 			item_service['Snapshots'] = len(responseVolumeSnapshots)
@@ -254,6 +284,8 @@ if responseSnapshots:
 	dataSnapshots = []
 	for item in responseSnapshots:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['SnapshotId'] = item['SnapshotId']
 		item_service['StartTime'] = item['StartTime'].strftime("%Y-%m-%d %H:%m")
 		item_service['State'] = item['State']
@@ -272,6 +304,8 @@ if responseReservedInstances:
 	dataReservedInstances = []
 	for item in responseReservedInstances:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		ri_scope = item['Scope']
 		if existsKey(item, 'AvailabilityZone'):
 			ri_scope = ri_scope + " - " + item['AvailabilityZone']
@@ -312,6 +346,8 @@ if responseDBInstances:
 	dataDBInstances = []
 	for item in responseDBInstances:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['DBInstanceIdentifier'] = item["DBInstanceIdentifier"]
 		item_service['DBName'] = getExistsValueKey(item, "DBName")
 		item_service['MasterUsername'] = item["MasterUsername"]
@@ -369,6 +405,8 @@ if responseReservedDBInstances:
 	dataReservedDBInstances = []
 	for item in responseReservedDBInstances:
 		item_service = {}
+		item_service['AccountId'] = account_id
+		item_service['Region'] = AWS_DEFAULT_REGION
 		item_service['DBInstanceCount'] = item["DBInstanceCount"]
 		item_service['DBInstanceClass'] = item["DBInstanceClass"]
 		item_service['StartTime'] = item["StartTime"].strftime("%Y-%m-%d %H:%m")
