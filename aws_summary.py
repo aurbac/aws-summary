@@ -191,7 +191,7 @@ if responseInstances:
 			item_service['LaunchTime'] = instance['LaunchTime']
 			item_service['VirtualizationType'] = instance['VirtualizationType']
 			item_service['EbsOptimized'] = isTrueOrFalse(instance['EbsOptimized'])
-			item_service['EnaSupport'] = isTrueOrFalse(instance['EnaSupport'])
+			item_service['EnaSupport'] = getExistsValueKey(instance, 'EnaSupport')
 			item_service['KeyName'] = getExistsValueKey(instance, 'KeyName')
 			if getExistsValueKey(instance,'Platform').lower()=="windows":
 				item_service['Platform'] = "Windows"
